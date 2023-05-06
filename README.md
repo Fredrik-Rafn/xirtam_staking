@@ -1,6 +1,6 @@
-# Staking Contract
+# XIRTAM Staking Contract
 
-A Solidity smart contract for staking ERC20 tokens. The contract allows users to stake tokens, unstake tokens, withdraw rewards, and compound rewards. The contract also includes a fee on unstaking tokens and provides utility functions for the contract owner.
+A Solidity smart contract for staking ERC20 tokens (specifically XIRTAM). The contract allows users to stake tokens, unstake tokens, withdraw rewards, and compound rewards. The contract also includes a fee on unstaking tokens and provides utility functions for the contract owner.
 
 ## Overview
 
