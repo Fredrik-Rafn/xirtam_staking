@@ -1,81 +1,117 @@
-// SPDX-License-Identifier: UNLICENSED
-
+// SPDX-License-Identifier: MIT
 pragma solidity ^0.8.19;
 
-interface ERC20 {
-    function transfer(address recipient, uint256 amount) external returns (bool);
-    function transferFrom(address sender, address recipient, uint256 amount) external returns (bool);
-    function balanceOf(address account) external view returns (uint256);
-    function approve(address spender, uint256 amount) external returns (bool);
-    function allowance(address owner, address spender) external view returns (uint256);
-}
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
 
-contract XIRTAM_Staking {
-    ERC20 public token;
-    address public owner;
-    uint256 public stakingStart;
-    uint256 public stakingAPY = 18;
-    uint256 public stakingDays = 365;
-    uint256 public stakingEnd;
-    uint256 public totalStaked;
-    mapping(address => uint256) public stakedBalance;
-    mapping(address => uint256) public stakingTime;
-    mapping(address => uint256) public earnedBalance;
+contract XIRTAM_Staking is ReentrancyGuard, Ownable {
+    using SafeERC20 for IERC20;
 
-    constructor(address _token) {
-        token = ERC20(_token);
-        owner = msg.sender;
-        stakingStart = block.timestamp;
-        stakingEnd = stakingStart + stakingDays * 1 days;
+    IERC20 public stakingToken;
+    uint256 public constant APY = 18;
+    uint256 private constant SECONDS_IN_A_YEAR = 365 * 24 * 3600;
+    uint256 private constant WITHDRAWAL_FEE = 25; // 2.5% fee
+    uint256 private constant FEE_DENOMINATOR = 1000;
+
+    struct Stake {
+        uint256 amount;
+        uint256 timestamp;
     }
 
-    function deposit(uint256 amount) external {
-        require(token.balanceOf(msg.sender) >= amount, "Insufficient balance");
-        require(token.allowance(msg.sender, address(this)) >= amount, "Token allowance not set");
-        require(stakingTime[msg.sender] == 0, "Already staked");
+    mapping(address => Stake) private stakes;
 
-        token.transferFrom(msg.sender, address(this), amount);
-        stakedBalance[msg.sender] = amount;
-        stakingTime[msg.sender] = block.timestamp;
-        totalStaked += amount;
+    constructor() {
+        stakingToken = IERC20(0xe73394F6a157A0Fa656Da2b73BbEDA85c38dfDeC);
     }
 
-    function withdraw() external {
-        require(stakingTime[msg.sender] > 0, "Not staked");
-        require(block.timestamp >= stakingEnd, "Staking period not ended");
+    function stake(uint256 amount) external nonReentrant {
+        require(amount > 0, "Staking amount should be greater than 0");
 
-        uint256 staked = stakedBalance[msg.sender];
-        uint256 earned = calculateEarnings(msg.sender);
-        uint256 total = staked + earned;
+        // Update the stake
+        Stake storage userStake = stakes[msg.sender];
+        userStake.amount = userStake.amount + amount;
+        userStake.timestamp = block.timestamp;
 
-        stakedBalance[msg.sender] = 0;
-        stakingTime[msg.sender] = 0;
-        earnedBalance[msg.sender] = 0;
-        totalStaked -= staked;
-
-        token.transfer(msg.sender, total);
+        // Transfer the tokens
+        stakingToken.safeTransferFrom(msg.sender, address(this), amount);
     }
 
-    function claim() external {
-        require(stakingTime[msg.sender] > 0, "Not staked");
-        require(block.timestamp >= stakingEnd, "Staking period not ended");
+    function unstake(uint256 amount) external nonReentrant {
+        require(amount > 0, "Unstaking amount should be greater than 0");
 
-        uint256 earned = calculateEarnings(msg.sender);
-        earnedBalance[msg.sender] = 0;
+        Stake storage userStake = stakes[msg.sender];
+        require(userStake.amount >= amount, "Not enough staked tokens");
 
-        token.transfer(msg.sender, earned);
+        // Update the stake
+        userStake.amount = userStake.amount - amount;
+        userStake.timestamp = block.timestamp;
+
+        // Calculate the withdrawal fee
+        uint256 fee = (amount * WITHDRAWAL_FEE) / FEE_DENOMINATOR;
+
+        // Transfer the tokens
+        stakingToken.safeTransfer(msg.sender, amount - fee);
     }
 
-    function calculateEarnings(address staker) public view returns (uint256) {
-        uint256 staked = stakedBalance[staker];
-        uint256 timeStaked = block.timestamp - stakingTime[staker];
-        uint256 stakingPeriod = stakingEnd - stakingStart;
-        uint256 stakingFraction = timeStaked * 10**18 / stakingPeriod;
-        uint256 dailyAPY = stakingAPY * 10**16 / 365;
-        uint256 dailyEarnings = staked * dailyAPY / 10**18;
-        uint256 totalEarnings = dailyEarnings * timeStaked / 1 days;
-        uint256 earned = totalEarnings * stakingFraction / 10**18;
+    function compound() external nonReentrant {
+        Stake storage userStake = stakes[msg.sender];
+        require(userStake.amount > 0, "No staked tokens");
 
-        return earned;
+        uint256 reward = calculateReward(msg.sender);
+        userStake.amount = userStake.amount + reward;
+        userStake.timestamp = block.timestamp;
     }
+
+    function withdrawReward() external nonReentrant {
+        uint256 reward = calculateReward(msg.sender);
+        require(reward > 0, "No reward to withdraw");
+
+        Stake storage userStake = stakes[msg.sender];
+        userStake.timestamp = block.timestamp;
+
+        // Transfer the reward
+        stakingToken.safeTransfer(msg.sender, reward);
+    }
+
+    function calculateReward(address user) public view returns (uint256) {
+        Stake storage userStake = stakes[user];
+
+        if (userStake.amount == 0) {
+            return 0;
+        }
+
+        uint256 stakingDuration = block.timestamp - userStake.timestamp;
+        uint256 reward = (userStake.amount * stakingDuration * APY) / (SECONDS_IN_A_YEAR * 100);
+
+        return reward;
+    }
+
+        function getUserStake(address user) external view returns (uint256) {
+        return stakes[user].amount;
+    }
+
+    function getStakingDuration(address user) external view returns (uint256) {
+        return block.timestamp - stakes[user].timestamp;
+    }
+
+    function getReward(address user) external view returns (uint256) {
+        return calculateReward(user);
+    }
+
+    function getUnstakeFee(uint256 amount) public pure returns (uint256) {
+        return (amount * WITHDRAWAL_FEE) / FEE_DENOMINATOR;
+    }
+
+    function rescueTokens(address token, uint256 amount) external onlyOwner {
+        require(token != address(stakingToken), "Cannot withdraw staking tokens");
+        IERC20(token).safeTransfer(msg.sender, amount);
+    }
+
+    function rescueETH(uint256 amount) external onlyOwner {
+        require(amount <= address(this).balance, "Insufficient ETH balance in the contract");
+        payable(msg.sender).transfer(amount);
+    }
+
 }
