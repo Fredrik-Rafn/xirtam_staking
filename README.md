@@ -51,3 +51,47 @@ Allows the contract owner to rescue any stuck tokens (except the staking token) 
 ### rescueETH(uint256 amount) external onlyOwner
 
 Allows the contract owner to rescue any stuck ETH by transferring the specified `amount` of ETH to the owner's wallet.
+
+## ReentrancyGuard
+
+ReentrancyGuard is a Solidity library that provides a simple and effective way to protect against reentrancy attacks in your smart contracts. Reentrancy attacks can occur when a malicious contract calls a function of your contract and the function, in turn, calls an external contract before updating its state. The attacker can then exploit this vulnerability to manipulate the state of your contract and potentially drain its funds.
+
+This library prevents reentrancy attacks by implementing a mutex (lock) pattern that can be added to your functions, ensuring that they can only be called once during a single transaction.
+
+### How it works
+
+ReentrancyGuard uses a boolean state variable, `_notEntered`, as a mutex (lock) to protect functions from being called again before they finish executing. The variable is set to `true` by default, indicating that the function is not being executed. When a function protected by the ReentrancyGuard modifier is called, the mutex is set to `false`, which prevents the function from being called again until it has finished executing.
+
+Here's a simple example of how ReentrancyGuard works:
+
+```
+pragma solidity ^0.8.0;
+
+import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+
+contract MyContract is ReentrancyGuard {
+    uint256 public value;
+
+    function updateValue(uint256 newValue) external nonReentrant {
+        // Some logic that calls an external contract
+        value = newValue;
+    }
+}
+```
+
+In this example, `updateValue` is protected by the `nonReentrant` modifier, which is provided by the `ReentrancyGuard` library. This ensures that the function can only be called once during a single transaction, preventing reentrancy attacks.
+
+## When to use ReentrancyGuard
+
+ReentrancyGuard should be used when your contract:
+
+1. Calls an external contract, which could potentially be malicious or untrusted.
+2. Updates its internal state after calling the external contract.
+
+By protecting your functions with ReentrancyGuard, you can help ensure that your smart contracts are secure and resistant to reentrancy attacks.
+
+## Limitations
+
+While ReentrancyGuard is a valuable tool for preventing reentrancy attacks, it is not a comprehensive security solution. It is important to keep in mind that smart contract security is a complex topic, and you should follow best practices and perform thorough audits to ensure your contracts are secure.
+
+Additionally, ReentrancyGuard should not be used to protect functions that rely on low-level calls (`call`, `delegatecall`, `staticcall`) since they bypass the `nonReentrant` modifier.
